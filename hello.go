@@ -1,13 +1,20 @@
 package main
 
 import (
+	//Utility libraries
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 
+	//Router
 	"github.com/gorilla/mux"
+
+	//MySql
+	"database/sql"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type Note struct {
@@ -22,6 +29,17 @@ func main() {
 	notes = append(notes, Note{ID: "1", Title: "Test Note", Text: "Just a simple test note"})
 	//This is the router
 	router := mux.NewRouter()
+
+	//Start MySQL database
+
+	db, _ := sql.Open("mysql", "admin:password@tcp(127.0.0.1:3306)/noteDatabase")
+
+	if err := db.Ping(); err != nil {
+		db.Close()
+		fmt.Printf("Error pinging DB")
+		return
+	}
+	defer db.Close()
 
 	//Here we create all the endpoints
 	//HandleFunc takes two arguments: a string that defiens the route and a function that handle the roue
