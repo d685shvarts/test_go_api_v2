@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 
 	//Router
 	"github.com/gorilla/mux"
@@ -25,21 +24,25 @@ type Note struct {
 
 var notes []Note
 
+var db *sql.DB
+var err error
+
 func main() {
 	notes = append(notes, Note{ID: "1", Title: "Test Note", Text: "Just a simple test note"})
-	//This is the router
-	router := mux.NewRouter()
 
 	//Start MySQL database
-
-	db, _ := sql.Open("mysql", "admin:password@tcp(127.0.0.1:3306)/noteDatabase")
+	db, _ = sql.Open("mysql", "admin:password@tcp(127.0.0.1:3306)/noteDatabase")
 
 	if err := db.Ping(); err != nil {
 		db.Close()
 		fmt.Printf("Error pinging DB")
 		return
 	}
+
 	defer db.Close()
+
+	//This is the router
+	router := mux.NewRouter()
 
 	//Here we create all the endpoints
 	//HandleFunc takes two arguments: a string that defiens the route and a function that handle the roue
@@ -55,52 +58,85 @@ func main() {
 	//second argument is the handler for the address
 	//We wrap it all in the log.Fatal() to throw an error if it fails
 	log.Fatal(http.ListenAndServe(":8080", router))
+
 }
 
 func getNotes(w http.ResponseWriter, r *http.Request) {
-	//This sets the header of the response
 	w.Header().Set("Content-Type", "application/json")
-	//Encode then encodes our notes slice as json and sends it to response stream
-	//Encoders write JSOn to outpput stream
-	//NEw Encoder returns a new encoder that writes to w
-	json.NewEncoder(w).Encode(notes)
+
+	result, err := db.Query("SELECT notes_id, notes_title, notes_text FROM notes_tbl")
+	if err != nil {
+		fmt.Printf("Error making query")
+		panic(err.Error())
+	}
+	defer result.Close()
+	var get_notes []Note
+	for result.Next() {
+		var note Note
+		err := result.Scan(&note.ID, &note.Title, &note.Text)
+		if err != nil {
+			fmt.Printf("Error scanning")
+			panic(err.Error())
+		}
+		get_notes = append(get_notes, note)
+	}
+	json.NewEncoder(w).Encode(get_notes)
 
 }
 
 func getNote(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	//Get variable from http repsonse we are passing to it
 	params := mux.Vars(r)
 
-	for _, item := range notes {
-		if item.ID == params["id"] {
-			json.NewEncoder(w).Encode(item)
-			return
+	var note Note
+	result, err := db.Query("SELECT notes_id, notes_title, notes_text FROM notes_tbl WHERE notes_id = ?", params["id"])
+	if err != nil {
+		fmt.Printf("Error making query")
+		panic(err.Error())
+	}
+
+	for result.Next() {
+		err := result.Scan(&note.ID, &note.Title, &note.Text)
+		if err != nil {
+			panic(err.Error())
 		}
 	}
+
+	defer result.Close()
+	json.NewEncoder(w).Encode(note)
 }
 
 func createNote(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	//First create a new Note struct to store the request
-	var newNote Note
-	//To get the data of the json response, we must Decoder (similar to using encoder to put into r)
-	//NewDecoder returns a new decoder that reads from r
-	//Decode reads the next JSON encoded value from input and store it in newNote
-	json.NewDecoder(r.Body).Decode(&newNote)
+	var note Note
 
-	fmt.Printf("%+v\n", newNote)
-	//Here we simulate an id by getting the length of the notes slice, then using strConv Itoa
-	//to convert it to a string
-	newNote.ID = strconv.Itoa(len(notes) + 1)
+	json.NewDecoder(r.Body).Decode(&note)
 
-	//Add new roll to struct to our notes slice
-	notes = append(notes, newNote)
+	insForm, err := db.Prepare("INSERT INTO notes_tbl (notes_title, notes_text) VALUES(?,?)")
+	if err != nil {
+		panic(err.Error())
+	}
+	_, err = insForm.Exec(note.Title, note.Text)
 
-	//Then send response back containing new roll
-	json.NewEncoder(w).Encode(newNote)
+	result, err := db.Query("SELECT LAST_INSERT_ID()")
+
+	if err != nil {
+		panic(err.Error())
+	}
+
+	var last_id string
+	for result.Next() {
+		err := result.Scan(&last_id)
+		if err != nil {
+			panic(err.Error())
+		}
+	}
+
+	note.ID = last_id
+
+	json.NewEncoder(w).Encode(note)
 }
 
 func updateNote(w http.ResponseWriter, r *http.Request) {
