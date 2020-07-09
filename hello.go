@@ -58,7 +58,6 @@ func main() {
 	//second argument is the handler for the address
 	//We wrap it all in the log.Fatal() to throw an error if it fails
 	log.Fatal(http.ListenAndServe(":8080", router))
-
 }
 
 func getNotes(w http.ResponseWriter, r *http.Request) {
@@ -142,39 +141,51 @@ func createNote(w http.ResponseWriter, r *http.Request) {
 func updateNote(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
-
-	//Get variable from http repsonse we are passing to it
+	var note Note
 	params := mux.Vars(r)
+	json.NewDecoder(r.Body).Decode(&note)
+	fmt.Printf("%+v\n", note)
 
-	for i, item := range notes {
-		if item.ID == params["id"] {
-			//This removes the current item from the notes slice
-			notes = append(notes[:i], notes[i+1:]...)
-			var newNote Note
-			json.NewDecoder(r.Body).Decode(&newNote)
-			newNote.ID = params["id"]
-			notes = append(notes, newNote)
-			json.NewEncoder(w).Encode(newNote)
-			return
+	stmt, err := db.Prepare("UPDATE notes_tbl SET notes_text = ? WHERE notes_id = ?")
+	if err != nil {
+		panic(err.Error())
+	}
+
+	_, err = stmt.Exec(note.Text, params["id"])
+	if err != nil {
+		panic(err.Error())
+	}
+
+	//TODO: Addd some error checking to return error if ID doesn't exist in DB
+	result, err := db.Query("SELECT notes_id, notes_title, notes_text FROM notes_tbl WHERE notes_id = ?", params["id"])
+	if err != nil {
+		fmt.Printf("Error making query")
+		panic(err.Error())
+	}
+
+	for result.Next() {
+		err := result.Scan(&note.ID, &note.Title, &note.Text)
+		if err != nil {
+			panic(err.Error())
 		}
 	}
 
+	defer result.Close()
+	json.NewEncoder(w).Encode(note)
 }
+
 func deleteNote(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-
-	//Get variable from http repsonse we are passing to it
 	params := mux.Vars(r)
-
-	for i, item := range notes {
-		if item.ID == params["id"] {
-			//This removes the current item from the notes slice
-			notes = append(notes[:i], notes[i+1:]...)
-
-			break
-		}
+	stmt, err := db.Prepare("DELETE FROM notes_tbl WHERE notes_id = ?")
+	if err != nil {
+		panic(err.Error())
+	}
+	_, err = stmt.Exec(params["id"])
+	if err != nil {
+		panic(err.Error())
 	}
 
-	json.NewEncoder(w).Encode(notes)
+	fmt.Fprintf(w, "Post with ID = %s was deleted", params["id"])
 
 }
